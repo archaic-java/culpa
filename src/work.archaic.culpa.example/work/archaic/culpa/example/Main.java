@@ -7,13 +7,15 @@ public final class Main implements Logging {
     public static void main(String[] args) throws Exception {
         var providers = ServiceLoader.load(Log.class).stream().toList();
         if (providers.size() != 1) throw new IllegalStateException("Exactly one logging provider required");
-        Logging.install(providers.getFirst().get());
+        var logging = providers.getFirst().get();
+        var context = logging.context();
         var app = new Main();
-        app.logImmediately("Culpa example on " + Thread.currentThread().getName());
-        Logging.trail(() -> {
+        context.run(() -> {
+            app.logImmediately("Culpa example on " + Thread.currentThread().getName());
+            app.logOnDebug(() -> "Only computed with debug enabled: " + Runtime.version());
             app.logOnFailure("Reading configuration");
             app.logOnFailure("Checking remote state");
-            Logging.failure("Example: remote state unavailable");
+            context.fail("Example: remote state unavailable");
         });
     }
 }

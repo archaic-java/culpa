@@ -2,20 +2,17 @@ package work.archaic.culpa;
 
 import java.util.ArrayDeque;
 import java.util.List;
-import work.archaic.service.logging.v03.*;
+import work.archaic.service.logging.v03.Entry;
+import work.archaic.service.logging.v03.FailureReport;
 
-/** Mutable evidence confined to one thread and one outer trail. */
+/** Bounded evidence for one thread-confined context. */
 final class Buffer {
     private final ArrayDeque<Entry> evidence = new ArrayDeque<>();
     private final int capacity;
-    private final Thread owner = Thread.currentThread();
     private long dropped;
     private Entry failure;
 
     Buffer(int capacity) { this.capacity = capacity; }
-    void requireOwner() {
-        if (Thread.currentThread() != owner) throw new IllegalStateException("Trail belongs to another thread");
-    }
     void add(Entry entry) {
         if (evidence.size() == capacity) { evidence.removeFirst(); dropped++; }
         evidence.addLast(entry);
@@ -25,4 +22,5 @@ final class Buffer {
     FailureReport report(Throwable cause) {
         return new FailureReport(List.copyOf(evidence), dropped, failure, cause);
     }
+    void clear() { evidence.clear(); failure = null; dropped = 0; }
 }

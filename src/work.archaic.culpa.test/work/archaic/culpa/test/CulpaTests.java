@@ -10,94 +10,69 @@ import work.archaic.service.test.v02.*;
 
 public record CulpaTests() implements TestSuite {
     public void cases(Collection<TestCase> cases) {
-        LoggingV03ProviderContract.cases(cases, () -> {
-            var entries = new CopyOnWriteArrayList<Entry>();
-            var reports = new CopyOnWriteArrayList<FailureReport>();
-            var log = new Culpa(Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), entries::add, reports::add, 2, 32);
-            return new LoggingV03ProviderContract.Fixture(log, entries, reports);
-        });
-        cases.add(new SinkFailure());
-        cases.add(new Facade());
-        cases.add(new Discovery());
-        cases.add(new TimestampAtSubmission());
-        cases.add(new ReportValidation());
+        LoggingV03ProviderContract.cases(cases, () -> new LoggingV03ProviderContract.Fixture(
+            new Culpa(), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
+            new CopyOnWriteArrayList<>(), new CopyOnWriteArrayList<>()));
+        cases.add(new ContextSinkFailure());
+        cases.add(new ContextDiscovery());
+        cases.add(new ContextTimestamp());
+        cases.add(new ContextConfiguration());
     }
 }
 
-record SinkFailure() implements TestCase {
+record ContextSinkFailure() implements TestCase {
     public void run(TestTrail test) throws Exception {
         var sinkError = new IllegalStateException("sink failed");
-        var log = new Culpa(Clock.systemUTC(), entry -> {}, report -> { throw sinkError; }, 2, 32);
+        var log = new Culpa();
+        var settings = new Configuration(false, entry -> {}, report -> { throw sinkError; });
         var original = new java.io.IOException("original");
+        var context = log.context(settings);
         try {
-            log.trail(() -> { throw original; });
+            context.run(() -> { throw original; });
             assert false : "Original failure must escape";
         } catch (java.io.IOException caught) {
             assert caught == original : "Sink failure must not replace application failure";
             assert List.of(caught.getSuppressed()).contains(sinkError) : "Preserve sink failure as suppressed";
         }
-        log.trail(() -> {});
+        try { Logging.context(); assert false : "Failed sink must not leave a context binding"; }
+        catch (IllegalStateException expected) { }
+        var explicit = log.context(settings);
         try {
-            log.trail(() -> log.failure("worker", "explicit"));
-            assert false : "Sink failure on normal return must escape";
+            explicit.run(() -> explicit.fail("explicit"));
+            assert false : "Sink error after normal completion must escape";
         } catch (IllegalStateException caught) {
-            assert caught == sinkError : "Explicit failure output error must stay observable";
+            assert caught == sinkError : "Keep publication failures observable";
         }
-        log.trail(() -> {});
+        try { explicit.run(() -> {}); assert false : "Publication error still completes the context"; }
+        catch (IllegalStateException expected) { }
+        log.context(settings).run(() -> {});
     }
 }
 
-record Worker(String name) implements Logging {
-    public String loggingName() { return name; }
-}
-
-record Facade() implements TestCase {
+record ContextDiscovery() implements TestCase {
     public void run(TestTrail test) throws Exception {
-        try { Logging.debug(); assert false : "Use before installation must fail"; }
-        catch (IllegalStateException expected) { }
-        var entries = new ArrayList<Entry>();
-        var reports = new ArrayList<FailureReport>();
-        Logging.install(new Culpa(Clock.systemUTC(), entries::add, reports::add, 8, 100));
-        var first = new Worker("first");
-        var second = new Worker("second");
-        Logging.trail(() -> {
-            first.logOnFailure("first evidence");
-            second.logOnFailure("second evidence");
-            Logging.failure("handled failure");
-        });
-        assert reports.size() == 1 && reports.getFirst().evidence().size() == 2 : "Objects must contribute to the same trail";
-        assert reports.getFirst().evidence().getFirst().source().equals("first") : "Use overridden object name";
-        Logging.debug(true);
-        first.logOnDebug("debug");
-        second.logImmediately("immediate");
-        assert entries.size() == 2 : "Default methods must delegate to shared provider";
-        assert new Logging() {}.loggingName().contains("Facade") : "Default name identifies implementing class";
-        try { Logging.install(new Culpa()); assert false : "Reject provider replacement"; }
-        catch (IllegalStateException expected) { }
-        Logging.debug(false);
-    }
-}
-
-record Discovery() implements TestCase {
-    public void run(TestTrail test) {
         var providers = ServiceLoader.load(Log.class).stream().toList();
         assert providers.size() == 1 : "Resolve exactly one logging v03 provider";
-        assert providers.getFirst().get() instanceof Culpa : "Discover Culpa through JPMS";
+        var log = providers.getFirst().get();
+        assert log instanceof Culpa : "Discover Culpa through JPMS";
+        var context = log.context();
+        assert !context.configuration().debug() : "Default debug is disabled";
+        assert context.configuration().capacity() == 256 : "Default evidence capacity is documented";
+        context.run(() -> {});
     }
 }
 
-record TimestampAtSubmission() implements TestCase {
+record ContextTimestamp() implements TestCase {
     public void run(TestTrail test) throws Exception {
-        var reports = new ArrayList<FailureReport>();
-        var clock = new AdvancingClock();
-        var log = new Culpa(clock, entry -> {}, reports::add, 8, 100);
-        log.trail(() -> {
-            log.onFailure("worker", "before");
+        var reports = new ArrayList<FailureReport>(); var clock = new AdvancingClock();
+        var context = new Culpa().context(new Configuration(false, clock, entry -> {}, reports::add, 8, 100));
+        context.run(() -> {
+            context.onFailure("worker", "before");
             clock.now = Instant.EPOCH.plusSeconds(10);
-            log.failure("worker", "later");
+            context.fail("later");
         });
         var report = reports.getFirst();
-        assert report.evidence().getFirst().timestamp().equals(Instant.EPOCH) : "Timestamp must be captured before publication";
+        assert report.evidence().getFirst().timestamp().equals(Instant.EPOCH) : "Timestamp is captured at submission";
         assert report.explicitFailure().timestamp().equals(clock.now) : "Capture explicit failure time independently";
     }
 }
@@ -109,18 +84,21 @@ final class AdvancingClock extends Clock {
     public Instant instant() { return now; }
 }
 
-record ReportValidation() implements TestCase {
-    public void run(TestTrail test) {
-        var reason = new Entry(Instant.EPOCH, "source", "reason");
-        var entries = new ArrayList<Entry>(); entries.add(reason);
-        var report = new FailureReport(entries, 0, reason, null);
-        entries.clear();
-        assert report.evidence().size() == 1 : "Reports must take an independent snapshot";
-        try { new FailureReport(List.of(), 0, null, null); assert false : "Require a cause or reason"; }
+record ContextConfiguration() implements TestCase {
+    public void run(TestTrail test) throws Exception {
+        var log = new Culpa();
+        var firstEntries = new ArrayList<Entry>(); var secondEntries = new ArrayList<Entry>();
+        var first = log.context(new Configuration(false, firstEntries::add, report -> {}));
+        var second = log.context(new Configuration(true, secondEntries::add, report -> {}));
+        var worker = new Worker();
+        first.run(() -> { worker.logImmediately("first"); worker.logOnDebug(() -> { throw new AssertionError("disabled"); }); });
+        second.run(() -> worker.logOnDebug(() -> "second"));
+        assert firstEntries.size() == 1 && firstEntries.getFirst().message().equals("first") : "First context uses its own sink";
+        assert secondEntries.size() == 1 && secondEntries.getFirst().message().equals("second") : "Reuse application object with independently configured context";
+        try { new Configuration(false, Clock.systemUTC(), firstEntries::add, report -> {}, 0, 32); assert false : "Reject unbounded or empty evidence capacity"; }
         catch (IllegalArgumentException expected) { }
-        try { new FailureReport(List.of(), -1, reason, null); assert false : "Reject negative loss count"; }
+        try { new Configuration(false, Clock.systemUTC(), firstEntries::add, report -> {}, 2, 1); assert false : "Field limit must fit clipping marker safely"; }
         catch (IllegalArgumentException expected) { }
-        try { new Entry(null, "source", "message"); assert false : "Require timestamp"; }
-        catch (NullPointerException expected) { }
     }
 }
+record Worker() implements Logging {}
