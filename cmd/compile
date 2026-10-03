@@ -1,0 +1,4 @@
+--release 25
+--module-source-path src:lib/src
+--module work.archaic.service.catalog,work.archaic.culpa,work.archaic.culpa.test,work.archaic.culpa.example,work.archaic.service.catalog.test,work.archaic.minau
+-d out

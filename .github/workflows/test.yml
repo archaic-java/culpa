@@ -1,0 +1,40 @@
+name: Test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: culpa
+          persist-credentials: false
+      - name: Read pinned dependencies
+        working-directory: culpa
+        run: cat dependencies.env >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          repository: archaic-java/service-catalog
+          ref: ${{ env.CATALOG_REVISION }}
+          path: service-catalog
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: archaic-java/minau
+          ref: ${{ env.MINAU_REVISION }}
+          path: minau
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Compile
+        working-directory: culpa
+        run: javac @cmd/compile
+      - name: Test
+        working-directory: culpa
+        run: java @cmd/test
+      - name: Run example
+        working-directory: culpa
+        run: java @cmd/run

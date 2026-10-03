@@ -1,0 +1,3 @@
+--module-path out
+--add-modules work.archaic.culpa
+-m work.archaic.culpa.example/work.archaic.culpa.example.Main

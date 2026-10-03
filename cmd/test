@@ -1,0 +1,4 @@
+-ea
+--module-path out
+--add-modules work.archaic.culpa.test,work.archaic.culpa
+-m work.archaic.minau/work.archaic.minau.Main work.archaic.culpa.test
