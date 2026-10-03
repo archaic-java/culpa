@@ -9,9 +9,9 @@ import work.archaic.service.logging.v03.Logging;
 
 final class Reconciler implements Logging {
     void reconcile() throws java.io.IOException {
-        onFailure("Reading current state");
+        logOnFailure("Reading current state");
         // Read and update remote state here. Let failures escape.
-        immediately("Reconciled");
+        logImmediately("Reconciled");
     }
 }
 ```
@@ -29,9 +29,9 @@ Logging.trail(() -> new Reconciler().reconcile());
 The consuming module requires `work.archaic.service.catalog` and declares
 `uses work.archaic.service.logging.v03.Log`. Resolve `work.archaic.culpa` at launch.
 
-- `immediately(String)` publishes now.
-- `onDebug(String)` publishes now when `Logging.debug(true)` is enabled; debug starts disabled.
-- `onFailure(String)` retains timestamped evidence for the current trail.
+- `logImmediately(String)` publishes now.
+- `logOnDebug(String)` publishes now when `Logging.debug(true)` is enabled; debug starts disabled.
+- `logOnFailure(String)` retains timestamped evidence for the current trail.
 - `Logging.failure(String)` marks a handled failure without throwing.
 
 Normal completion discards evidence. An escaping exception/error publishes once and is

@@ -61,15 +61,15 @@ record Facade() implements TestCase {
         var first = new Worker("first");
         var second = new Worker("second");
         Logging.trail(() -> {
-            first.onFailure("first evidence");
-            second.onFailure("second evidence");
+            first.logOnFailure("first evidence");
+            second.logOnFailure("second evidence");
             Logging.failure("handled failure");
         });
         assert reports.size() == 1 && reports.getFirst().evidence().size() == 2 : "Objects must contribute to the same trail";
         assert reports.getFirst().evidence().getFirst().source().equals("first") : "Use overridden object name";
         Logging.debug(true);
-        first.onDebug("debug");
-        second.immediately("immediate");
+        first.logOnDebug("debug");
+        second.logImmediately("immediate");
         assert entries.size() == 2 : "Default methods must delegate to shared provider";
         assert new Logging() {}.loggingName().contains("Facade") : "Default name identifies implementing class";
         try { Logging.install(new Culpa()); assert false : "Reject provider replacement"; }
