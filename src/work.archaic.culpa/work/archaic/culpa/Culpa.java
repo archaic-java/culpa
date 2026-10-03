@@ -11,8 +11,7 @@ public final class Culpa implements Log {
 
     /** Defaults: stdout, UTC, debug disabled, 256 entries and 2048 UTF-16 units per field. */
     @Override public Context context() {
-        var output = new Output(System.out);
-        return context(new Configuration(false, output::entry, output::failure));
+        return context(Configuration.text(false, System.out));
     }
 
     @Override public Context context(Configuration configuration) {

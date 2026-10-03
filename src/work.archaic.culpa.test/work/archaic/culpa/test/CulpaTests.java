@@ -17,6 +17,7 @@ public record CulpaTests() implements TestSuite {
         cases.add(new ContextDiscovery());
         cases.add(new ContextTimestamp());
         cases.add(new ContextConfiguration());
+        cases.add(new ValueSinkFailure());
     }
 }
 
@@ -102,3 +103,24 @@ record ContextConfiguration() implements TestCase {
     }
 }
 record Worker() implements Logging {}
+
+record ValueSinkFailure() implements TestCase {
+    public void run(TestTrail test) throws Exception {
+        var outputFailure = new IllegalStateException("value sink failed");
+        var log = new Culpa();
+        var configuration = new Configuration(false, entry -> {}, report -> { throw outputFailure; });
+        var marked = log.context(configuration);
+        try {
+            marked.call(() -> { marked.fail("returning failure"); return 42; });
+            assert false : "A return value must not hide failed publication";
+        } catch (IllegalStateException caught) {
+            assert caught == outputFailure : "Preserve output failure before returning a value";
+        }
+        var original = new java.io.IOException("checked call");
+        try { log.context(configuration).call(() -> { throw original; }); assert false : "Checked call failure must escape"; }
+        catch (java.io.IOException caught) {
+            assert caught == original && List.of(caught.getSuppressed()).contains(outputFailure)
+                    : "Failed returning work must preserve original failure and suppressed sink error";
+        }
+    }
+}

@@ -13,6 +13,8 @@ if (providers.size() != 1) throw new IllegalStateException("Exactly one logging 
 var logging = providers.getFirst().get();
 var context = logging.context();
 context.run(() -> new Reconciler().reconcile());
+// For returning work, create a fresh context:
+var result = logging.context().call(() -> application.readState());
 ```
 
 Application objects depend only on the catalog and implement Logging:
@@ -41,7 +43,9 @@ The consumer requires `work.archaic.service.catalog` and declares
 
 A successful execution discards evidence. An escaping exception/error publishes once and is
 rethrown unchanged, preserving checked exceptions. An explicit mark is sticky and retains the
-first reason. Each context runs once; its scope restores the enclosing context on every exit.
+first reason. `context.call(...)` returns the exact value, including null, after completion;
+it preserves checked exception types just like run. Returning a failure-valued object does not
+automatically fail the context. Each context runs once through either run or call; its scope restores the enclosing context on every exit.
 Nested contexts have independent configuration, evidence and outcomes. A recovered inner failure
 need not fail its parent. Child threads create their own contexts; sharing active contexts across
 threads is unsupported. Calls outside an active context fail explicitly.
@@ -61,15 +65,14 @@ retention bounds exclude input construction and throwable graphs.
 Custom output and debug are selected through the catalog, including with a service-loaded provider:
 
 ```java
-var settings = new work.archaic.service.logging.v03.Configuration(
-    true,
-    entry -> renderEntryToStderr(entry),
-    report -> renderFailureToStderr(report));
+var settings = work.archaic.service.logging.v03.Configuration.text(true, System.err);
 var context = logging.context(settings);
 context.run(() -> application.execute());
 ```
 
-The render methods are application-defined. The full Configuration constructor also accepts a
+The standard text renderer is reusable as catalog `TextOutput`; it accepts a PrintStream and
+exposes entry/failure sinks. No direct dependency on Culpa implementation classes is needed.
+Application-defined sinks remain supported. The full Configuration constructor also accepts a
 Clock, capacity and field limit; capacity must be >= 1, field limit >= 2. Configuration is immutable
 and reusable; context instances are single-use. Shared sinks must support concurrent calls.
 There is no mutable provider-wide debug flag or global install step, so tests can configure
